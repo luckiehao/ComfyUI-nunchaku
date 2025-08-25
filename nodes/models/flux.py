@@ -239,31 +239,18 @@ class NunchakuFluxDiTLoader:
         #             break
         precision = get_precision()  # auto-detect your precision is 'int4' or 'fp4' based on your GPU
         # Search all diffusion_models directories for files that contain the precision string
-        # and end with .safetensors or .sft, then pick the first deterministic match
-        prefixes = folder_paths.folder_names_and_paths["diffusion_models"][0]
-        candidate_paths = []
-        for prefix in prefixes:
-            base_dir = Path(prefix)
-            if not base_dir.exists() or not base_dir.is_dir():
-                continue
-            for pattern in ("*.safetensors", "*.sft"):
-                for fp in base_dir.rglob(pattern):
-                    try:
-                        name = fp.name
-                    except Exception:
-                        continue
-                    if precision in name:
-                        candidate_paths.append(fp)
-
-        if not candidate_paths:
-            raise FileNotFoundError(
-                f"No model file containing '{precision}' with extensions .safetensors or .sft found in diffusion_models paths."
-            )
-
-        # Make selection deterministic
-        candidate_paths = sorted(candidate_paths, key=lambda p: str(p))
-        model_path = candidate_paths[0]
-        logger.info(f"Selected model: {model_path}")
+        
+        # Try to find the model in diffusion_models directory first, then fallback to folder_paths.models_dir
+        model_filename = f"svdq-{precision}_r32-flux.1-dev.safetensors"
+        diffusion_models_path = os.path.join(folder_paths.models_dir, "diffusion_models", model_filename)
+        
+        if os.path.exists(diffusion_models_path):
+            model_path = Path(diffusion_models_path)
+        else:
+            # Fallback to the original method
+            model_path = Path(folder_paths.get_full_path_or_raise("diffusion_models", model_filename))
+        
+        logger.info(f"Nunchaku Selected model: {model_path}")
 
         # Check if the device_id is valid
         if device_id >= torch.cuda.device_count():
