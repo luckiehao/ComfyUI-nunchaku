@@ -17,7 +17,7 @@ from comfy.supported_models import Flux, FluxSchnell
 
 from nunchaku import NunchakuFluxTransformer2dModel
 from nunchaku.caching.diffusers_adapters.flux import apply_cache_on_transformer
-from nunchaku.utils import is_turing
+from nunchaku.utils import is_turing, get_precision
 
 from ...wrappers.flux import ComfyFluxWrapper
 
@@ -121,7 +121,7 @@ class NunchakuFluxDiTLoader:
             "required": {
                 "model_path": (
                     model_paths,
-                    {"tooltip": "The Nunchaku FLUX model."},
+                    {"tooltip": "The Nunchaku FLUX model. Auto-selects, this is only for checking the model."},
                 ),
                 "cache_threshold": (
                     "FLOAT",
@@ -148,7 +148,7 @@ class NunchakuFluxDiTLoader:
                 "cpu_offload": (
                     ["auto", "enable", "disable"],
                     {
-                        "default": "auto",
+                        "default": "disable",
                         "tooltip": "Whether to enable CPU offload for the transformer model."
                         "auto' will enable it if the GPU memory is less than 14G.",
                     },
@@ -228,15 +228,42 @@ class NunchakuFluxDiTLoader:
         """
         device = torch.device(f"cuda:{device_id}")
 
-        if model_path.endswith((".sft", ".safetensors")):
-            model_path = Path(folder_paths.get_full_path_or_raise("diffusion_models", model_path))
-        else:
-            prefixes = folder_paths.folder_names_and_paths["diffusion_models"][0]
-            for prefix in prefixes:
-                prefix = Path(prefix)
-                if (prefix / model_path).exists() and (prefix / model_path).is_dir():
-                    model_path = prefix / model_path
-                    break
+        # if model_path.endswith((".sft", ".safetensors")):
+        #     model_path = Path(folder_paths.get_full_path_or_raise("diffusion_models", model_path))
+        # else:
+        #     prefixes = folder_paths.folder_names_and_paths["diffusion_models"][0]
+        #     for prefix in prefixes:
+        #         prefix = Path(prefix)
+        #         if (prefix / model_path).exists() and (prefix / model_path).is_dir():
+        #             model_path = prefix / model_path
+        #             break
+        precision = get_precision()  # auto-detect your precision is 'int4' or 'fp4' based on your GPU
+        # Search all diffusion_models directories for files that contain the precision string
+        # and end with .safetensors or .sft, then pick the first deterministic match
+        prefixes = folder_paths.folder_names_and_paths["diffusion_models"][0]
+        candidate_paths = []
+        for prefix in prefixes:
+            base_dir = Path(prefix)
+            if not base_dir.exists() or not base_dir.is_dir():
+                continue
+            for pattern in ("*.safetensors", "*.sft"):
+                for fp in base_dir.rglob(pattern):
+                    try:
+                        name = fp.name
+                    except Exception:
+                        continue
+                    if precision in name:
+                        candidate_paths.append(fp)
+
+        if not candidate_paths:
+            raise FileNotFoundError(
+                f"No model file containing '{precision}' with extensions .safetensors or .sft found in diffusion_models paths."
+            )
+
+        # Make selection deterministic
+        candidate_paths = sorted(candidate_paths, key=lambda p: str(p))
+        model_path = candidate_paths[0]
+        logger.info(f"Selected model: {model_path}")
 
         # Check if the device_id is valid
         if device_id >= torch.cuda.device_count():
