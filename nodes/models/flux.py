@@ -237,18 +237,23 @@ class NunchakuFluxDiTLoader:
         #         if (prefix / model_path).exists() and (prefix / model_path).is_dir():
         #             model_path = prefix / model_path
         #             break
-        precision = get_precision()  # auto-detect your precision is 'int4' or 'fp4' based on your GPU
-        # Search all diffusion_models directories for files that contain the precision string
+        # Get the current precision from GPU
+        current_precision = get_precision()  # auto-detect your precision is 'int4' or 'fp4' based on your GPU
         
-        # Try to find the model in diffusion_models directory first, then fallback to folder_paths.models_dir
-        model_filename = f"svdq-{precision}_r32-flux.1-dev.safetensors"
-        diffusion_models_path = os.path.join(folder_paths.models_dir, "diffusion_models", model_filename)
+        # Process model_path to handle precision mismatch
+        model_path_str = str(model_path)
+        if "fp4" in model_path_str or "int4" in model_path_str:
+            # Check if the precision in filename matches current GPU precision
+            if "fp4" in model_path_str and current_precision != "fp4":
+                # Replace fp4 with current precision
+                model_path_str = model_path_str.replace("fp4", current_precision)
+            elif "int4" in model_path_str and current_precision != "int4":
+                # Replace int4 with current precision
+                model_path_str = model_path_str.replace("int4", current_precision)
+            model_path = model_path_str
         
-        if os.path.exists(diffusion_models_path):
-            model_path = Path(diffusion_models_path)
-        else:
-            # Fallback to the original method
-            model_path = Path(folder_paths.get_full_path_or_raise("diffusion_models", model_filename))
+        # Get the full path for the model
+        model_path = Path(folder_paths.get_full_path_or_raise("diffusion_models", model_path))
         
         logger.info(f"Nunchaku Selected model: {model_path}")
 
